@@ -1,6 +1,6 @@
 /*  TinyINI: Miniscule .ini file parser
     ; Copyright (C) 2026 Ioan Phillips
-    ; v. 0.0.1
+    ; v. 0.0.2
     ; https://github.com/ioangp/tini.h
 
     Usage:
@@ -61,6 +61,7 @@ typedef struct IniResult {
     ```
 */
 #define ini_foreach(Type, item, in_list) for (Type *item = (in_list)->items; item < (in_list)->items + (in_list)->count; ++item)
+#define ini_foreach_ansi(item, in_list) for (item = (in_list)->items; item < (in_list)->items + (in_list)->count; ++item)
 #else
 #define ini_foreach(Type, item, in_list) Type *item; for (item = (in_list)->items; item < (in_list)->items + (in_list)->count; ++item)
 #define ini_foreach_ansi(item, in_list) for (item = (in_list)->items; item < (in_list)->items + (in_list)->count; ++item)
@@ -80,6 +81,7 @@ IniEntry   *ini_get_entry(IniSection *section, const char* key); /* returns: Fir
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdbool.h>
+#include <ctype.h>
 
 #define list_append(list, x)                                                        \
     do {                                                                            \
@@ -136,7 +138,6 @@ IniResult *ini_parse(const char *filepath) {
 
         if (*p == '[') {
             char *rbrack;
-            size_t len;
             char *name;
 
             rbrack = strchr(p, ']');
