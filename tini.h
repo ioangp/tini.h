@@ -1,5 +1,5 @@
 /*  TinyINI: Miniscule .ini file parser
-    ; Ioan P.
+    ; Copyright (C) 2026 Ioan Phillips
     ; v. 0.0.1
     ; https://github.com/ioangp/tini.h
 
