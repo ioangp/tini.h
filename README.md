@@ -48,9 +48,11 @@ Load it:
 
 int main(void)
 {
-    IniResult *ini = ini_parse("config.ini");
+    IniErrorInfo err = {0};
+    IniResult *ini = ini_parse("config.ini", &err);
 
     if (!ini)
+        printf("config.ini:%d code:%d\n%s\n", err.line_no, err.error, err.line_text);
         return 1;
 
     IniSection *window = ini_get_section(ini, "window");

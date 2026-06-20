@@ -26,6 +26,22 @@
 
 #define INI_MAX_LINE 512
 
+typedef enum IniError {
+    INI_OK = 0,
+    INI_ERR_OPEN_FILE,
+    INI_ERR_SECTION_SYNTAX,
+    INI_ERR_MISSING_EQUALS,
+    INI_ERR_OUT_OF_MEMORY,
+    INI_ERR_LINE_TOO_LONG,
+    INI_ERR_INVALID_ARGUMENT
+} IniError;
+
+typedef struct IniErrorInfo {
+    IniError error;
+    size_t line_no;
+    char line_text[INI_MAX_LINE];
+} IniErrorInfo;
+
 typedef struct IniEntry {
     const char *key;
     const char *value;
@@ -45,21 +61,6 @@ typedef struct IniResult {
 } IniResult;
 
 #if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 199901L
-/*  Iterate over sections in a result or entries in a section. E.g.
-
-    ```
-    IniResult *r = ini_parse("config.ini");
-
-    ini_foreach(IniSection, section, r)
-    {
-        ini_foreach(IniEntry, entry, section)
-        {
-            if (ini_entry_bool(entry))
-                do_something();
-        }
-    }
-    ```
-*/
 #define ini_foreach(Type, item, in_list) for (Type *item = (in_list)->items; item < (in_list)->items + (in_list)->count; ++item)
 #define ini_foreach_ansi(item, in_list) for (item = (in_list)->items; item < (in_list)->items + (in_list)->count; ++item)
 #else
@@ -67,7 +68,7 @@ typedef struct IniResult {
 #define ini_foreach_ansi(item, in_list) for (item = (in_list)->items; item < (in_list)->items + (in_list)->count; ++item)
 #endif
 
-IniResult  *ini_parse(const char *filepath);
+IniResult  *ini_parse(const char *filepath, IniErrorInfo *err);
 void        ini_free(IniResult *ini);
 void        ini_print(IniResult *ini);
 IniSection *ini_get_section(IniResult *ini, const char* section); /* returns: First IniSection with that name or NULL */
@@ -113,14 +114,25 @@ char *trim(char *s)
     return s;
 }
 
-IniResult *ini_parse(const char *filepath) {
+#define _inierr(errcode) {                                  \
+    err->error = errcode;                                   \
+    err->line_no = line_no;                                 \
+    strncpy(err->line_text, line, sizeof(err->line_text));  \
+    err->line_text[sizeof(err->line_text)-1] = '\0';        \
+    return NULL;                                            \
+}
+
+IniResult *ini_parse(const char *filepath, IniErrorInfo *err) {
     FILE *fp;
     char line[INI_MAX_LINE];
     IniResult result = {0};
     IniResult *resultp;
     IniSection current_section = {0};
+    size_t line_no = 0;
 
     fp = fopen(filepath, "r");
+    if (!fp)
+        _inierr(INI_ERR_OPEN_FILE)
 
     current_section.name = "global";
 
@@ -131,6 +143,10 @@ IniResult *ini_parse(const char *filepath) {
         char *value;
         char *eq;
 
+        if (!strchr(line, '\n') && !feof(fp))
+            _inierr(INI_ERR_LINE_TOO_LONG)
+        
+        line_no++;
         p = trim(line);
 
         if (*p == '\0' || *p == ';' || *p == '#')
@@ -142,7 +158,7 @@ IniResult *ini_parse(const char *filepath) {
 
             rbrack = strchr(p, ']');
             if (!rbrack)
-                return NULL;
+                _inierr(INI_ERR_SECTION_SYNTAX)
 
             *rbrack = '\0';
             name = trim(p + 1);
@@ -152,7 +168,7 @@ IniResult *ini_parse(const char *filepath) {
 
             current_section.name = strdup(name);
             if (!current_section.name)
-                return NULL;
+                _inierr(INI_ERR_OUT_OF_MEMORY)
 
             continue;
         }
@@ -160,7 +176,7 @@ IniResult *ini_parse(const char *filepath) {
         /* Key-value pair */
         eq = strchr(p, '=');
         if (!eq)
-            return NULL;
+            _inierr(INI_ERR_MISSING_EQUALS)
 
         *eq = '\0';
 
@@ -185,6 +201,9 @@ IniResult *ini_parse(const char *filepath) {
 
         entry.key = strdup(key);
         entry.value = strdup(value);
+
+        if(!entry.key || !entry.value)
+            _inierr(INI_ERR_OUT_OF_MEMORY)
 
         list_append(current_section, entry);
     }
