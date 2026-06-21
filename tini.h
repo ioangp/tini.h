@@ -129,6 +129,10 @@ IniResult *ini_parse(const char *filepath, IniErrorInfo *err) {
     IniResult *resultp;
     IniSection current_section = {0};
     size_t line_no = 0;
+    IniErrorInfo inf = {0};
+
+    *err = inf;
+    err->error = INI_OK;
 
     fp = fopen(filepath, "r");
     if (!fp)
@@ -142,10 +146,6 @@ IniResult *ini_parse(const char *filepath, IniErrorInfo *err) {
         char *key;
         char *value;
         char *eq;
-        IniErrorInfo inf = {0};
-
-        *err = inf;
-        err->error = INI_OK;
 
         if (!strchr(line, '\n') && !feof(fp))
             _inierr(INI_ERR_LINE_TOO_LONG)
