@@ -1,6 +1,6 @@
 /*  TinyINI: Miniscule .ini file parser
     ; Copyright (C) 2026 Ioan Phillips
-    ; v. 0.1.0
+    ; v. 0.1.1
     ; https://github.com/ioangp/tini.h
 
     Usage:
@@ -142,6 +142,10 @@ IniResult *ini_parse(const char *filepath, IniErrorInfo *err) {
         char *key;
         char *value;
         char *eq;
+        IniErrorInfo inf = {0};
+
+        *err = inf;
+        err->error = INI_OK;
 
         if (!strchr(line, '\n') && !feof(fp))
             _inierr(INI_ERR_LINE_TOO_LONG)
@@ -214,6 +218,10 @@ IniResult *ini_parse(const char *filepath, IniErrorInfo *err) {
 
     resultp = calloc(1, sizeof(result));
     *resultp = result;
+
+    if (!resultp)
+        _inierr(INI_ERR_OUT_OF_MEMORY)
+
     return resultp;
 }
 
