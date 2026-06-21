@@ -1,6 +1,6 @@
 /*  TinyINI: Miniscule .ini file parser
     ; Copyright (C) 2026 Ioan Phillips
-    ; v. 0.1.1
+    ; v. 0.2.0
     ; https://github.com/ioangp/tini.h
 
     Usage:
@@ -11,6 +11,7 @@
         - By default, a line has a maximum of 512 characters
         - Entries outside of any section go into a section called 'global' which is always the first section
         - All values are stored as strings, though some helper functions are included
+            - True, On, 1 considered 'true', False, Off, 0 considered 'false' (case insensitive)
         - Multiline values are not supported
         - Comments can be done with ';' or '#'
         - Inline comments are supported
@@ -25,6 +26,7 @@
 #include <stddef.h>
 
 #define INI_MAX_LINE 512
+#define INI_GLOBAL_SECTION "global"
 
 typedef enum IniError {
     INI_OK = 0,
@@ -71,8 +73,12 @@ typedef struct IniResult {
 IniResult  *ini_parse(const char *filepath, IniErrorInfo *err);
 void        ini_free(IniResult *ini);
 void        ini_print(IniResult *ini);
-IniSection *ini_get_section(IniResult *ini, const char* section); /* returns: First IniSection with that name or NULL */
-IniEntry   *ini_get_entry(IniSection *section, const char* key); /* returns: First IniEntry with that key or NULL */
+IniSection *ini_get_section(IniResult *ini,     const char* section);   /* returns: First IniSection with that name or NULL */
+IniEntry   *ini_get_entry(IniSection *section,  const char* key);       /* returns: First IniEntry with that key or NULL */
+
+int         ini_get_int(IniSection    *section, const char* key, int    default_val);
+double      ini_get_double(IniSection *section, const char* key, double default_val);
+int         ini_get_bool(IniSection   *section, const char* key, int    default_val);
 
 #endif
 
@@ -83,17 +89,23 @@ IniEntry   *ini_get_entry(IniSection *section, const char* key); /* returns: Fir
 #include <stdlib.h>
 #include <stdbool.h>
 #include <ctype.h>
+#include <errno.h>
+#include <limits.h>
 
-#define list_append(list, x)                                                        \
-    do {                                                                            \
-        if (list.count >= list.capacity) {                                          \
-            if (list.capacity == 0)                                                 \
-                list.capacity = 32;                                                 \
-            else                                                                    \
-                list.capacity *= 2;                                                 \
-            list.items = realloc(list.items, list.capacity * sizeof(*list.items));  \
-        }                                                                           \
-        list.items[list.count++] = x;                                               \
+static void ini_section_release(IniSection *);
+static void ini_result_release(IniResult *);
+
+#define _inilist_append(list, x)                                                   \
+    do {                                                                           \
+        if (list.count >= list.capacity) {                                         \
+            size_t new_cap = list.capacity == 0 ? 32 : list.capacity * 2;          \
+            void *new_items = realloc(list.items, new_cap * sizeof(*list.items));  \
+            if (!new_items)                                                        \
+                _inierr(INI_ERR_OUT_OF_MEMORY)                                     \
+            list.items = new_items;                                                \
+            list.capacity = new_cap;                                               \
+        }                                                                          \
+        list.items[list.count++] = x;                                              \
     } while(0)
 
 char *trim(char *s)
@@ -119,17 +131,22 @@ char *trim(char *s)
     err->line_no = line_no;                                 \
     strncpy(err->line_text, line, sizeof(err->line_text));  \
     err->line_text[sizeof(err->line_text)-1] = '\0';        \
-    return NULL;                                            \
+    goto fail;                                              \
 }
 
 IniResult *ini_parse(const char *filepath, IniErrorInfo *err) {
-    FILE *fp;
-    char line[INI_MAX_LINE];
+    FILE *fp = NULL;
+    char line[INI_MAX_LINE] = "";
     IniResult result = {0};
     IniResult *resultp;
     IniSection current_section = {0};
     size_t line_no = 0;
     IniErrorInfo inf = {0};
+
+    if(!err)
+        return NULL;
+    if(!filepath)
+        _inierr(INI_ERR_INVALID_ARGUMENT)
 
     *err = inf;
     err->error = INI_OK;
@@ -138,7 +155,9 @@ IniResult *ini_parse(const char *filepath, IniErrorInfo *err) {
     if (!fp)
         _inierr(INI_ERR_OPEN_FILE)
 
-    current_section.name = "global";
+    current_section.name = strdup(INI_GLOBAL_SECTION);
+    if (!current_section.name)
+        _inierr(INI_ERR_OUT_OF_MEMORY)
 
     while (fgets(line, sizeof line, fp) != NULL) {
         char *p;
@@ -167,7 +186,13 @@ IniResult *ini_parse(const char *filepath, IniErrorInfo *err) {
             *rbrack = '\0';
             name = trim(p + 1);
 
-            list_append(result, current_section);
+            if (*trim(rbrack + 1) != '\0')
+                _inierr(INI_ERR_SECTION_SYNTAX);
+
+            if (*name == '\0')
+                _inierr(INI_ERR_SECTION_SYNTAX);
+
+            _inilist_append(result, current_section);
             memset(&current_section, 0, sizeof current_section);
 
             current_section.name = strdup(name);
@@ -209,50 +234,71 @@ IniResult *ini_parse(const char *filepath, IniErrorInfo *err) {
         if(!entry.key || !entry.value)
             _inierr(INI_ERR_OUT_OF_MEMORY)
 
-        list_append(current_section, entry);
+        _inilist_append(current_section, entry);
     }
 
-    list_append(result, current_section);
+    _inilist_append(result, current_section);
+    memset(&current_section, 0, sizeof current_section);
 
     fclose(fp);
+    fp = NULL;
 
     resultp = calloc(1, sizeof(result));
-    *resultp = result;
-
     if (!resultp)
         _inierr(INI_ERR_OUT_OF_MEMORY)
 
+    *resultp = result;
+
     return resultp;
+
+fail:
+    if(fp)
+        fclose(fp);
+
+    ini_section_release(&current_section);
+    ini_result_release(&result);
+
+    return NULL;
+}
+
+static void ini_section_release(IniSection *sec)
+{
+    size_t j;
+    if (!sec) return;
+
+    for (j = 0; j < sec->count; ++j) {
+        free((void *)sec->items[j].key);
+        free((void *)sec->items[j].value);
+    }
+    free(sec->items);
+    free((void *)sec->name);
+}
+
+static void ini_result_release(IniResult *res)
+{
+    size_t i;
+    if (!res) return;
+
+    for (i = 0; i < res->count; ++i)
+        ini_section_release(&res->items[i]);
+    free(res->items);
 }
 
 void ini_free(IniResult *ini)
 {
-    size_t i;
-    size_t j;
-
     if (!ini) return;
-
-    for (i = 0; i < ini->count; ++i) {
-        IniSection *sec = &ini->items[i];
-
-        for (j = 0; j < sec->count; ++j) {
-            IniEntry *e = &sec->items[j];
-
-            free((void *)e->key);
-            free((void *)e->value);
-        }
-
-        free(sec->items);
-        free((void *)sec->name);
-    }
-
-    free(ini->items);
+    ini_result_release(ini);
     free(ini);
 }
 
 IniSection *ini_get_section(IniResult *ini, const char* section)
 {
-    ini_foreach(IniSection, s, ini) {
+    IniSection *s;
+
+    if(!ini)
+        return NULL;
+
+    ini_foreach_ansi(s, ini) {
         if (strcmp(s->name, section) == 0) {
             return s;
         }
@@ -264,6 +310,10 @@ IniSection *ini_get_section(IniResult *ini, const char* section)
 IniEntry *ini_get_entry(IniSection *section, const char* key)
 {
     IniEntry *e;
+
+    if(!section)
+        return NULL;
+
     ini_foreach_ansi(e, section) {
         if (strcmp(e->key, key) == 0) {
             return e;
@@ -273,9 +323,79 @@ IniEntry *ini_get_entry(IniSection *section, const char* key)
     return NULL;
 }
 
+int ini_get_int(IniSection *section, const char* key, int default_val)
+{
+    IniEntry *e = ini_get_entry(section, key);
+    char *end;
+    long value;
+    
+    if(!e)
+        return default_val;
+        
+    errno = 0;
+    value = strtol(e->value, &end, 10);
+        
+    if (errno != 0 || end == e->value || *end != '\0')
+        return default_val;
+    
+    if (value < INT_MIN || value > INT_MAX)
+        return default_val;
+    
+    return (int)value;
+}
+
+double ini_get_double(IniSection *section, const char* key, double default_val)
+{
+    IniEntry *e = ini_get_entry(section, key);
+    char *end;
+    double value;
+    
+    if(!e)
+        return default_val;
+        
+    errno = 0;
+    value = strtod(e->value, &end);
+        
+    if (errno != 0 || end == e->value || *end != '\0')
+        return default_val;
+        
+    return value;
+}
+
+int ini_get_bool(IniSection *section, const char* key, int default_val)
+{
+    IniEntry *e = ini_get_entry(section, key);
+    if(!e)
+        return default_val;
+
+    if(strcasecmp(e->value, "1") == 0)
+        return true;
+
+    if (strcasecmp(e->value, "true") == 0)
+        return true;
+    
+    if (strcasecmp(e->value, "on") == 0)
+        return true;
+
+    if(strcasecmp(e->value, "0") == 0)
+        return false;
+
+    if (strcasecmp(e->value, "false") == 0)
+        return false;
+    
+    if (strcasecmp(e->value, "off") == 0)
+        return false;
+    
+    return default_val;
+}
+
 void ini_print(IniResult *ini)
 {
     IniSection *section;
+
+    if (!ini)
+        return;
+
     ini_foreach_ansi(section, ini)
     {
         IniEntry *entry;

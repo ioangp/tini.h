@@ -4,7 +4,8 @@ TinyINI. Miniscule single-header INI parser for C. Intended for small projects t
 ## Notes
 - By default, a line has a maximum of 512 characters
 - Entries outside of any section go into a section called 'global' which is always the first section
-- All values are stored as strings
+- All values are stored as strings, though helper functions are included to get int, double, bool
+    - True, On, 1 considered 'true', False, Off, 0 considered 'false' (case insensitive)
 - Section names can be any string
 - Comments (including inline) are supported with ';' or '#'
 - Duplicate section names and keys **are** allowed
@@ -62,6 +63,8 @@ int main(void)
 
         if (width)
             printf("Width: %s\n", width->value);
+
+        int height = ini_get_int(window, "height", 0);
     }
 
     ini_free(ini);
