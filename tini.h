@@ -1,6 +1,6 @@
 /*  TinyINI: Miniscule .ini file parser
     ; Copyright (C) 2026 Ioan Phillips
-    ; v. 0.0.2
+    ; v. 0.1.0
     ; https://github.com/ioangp/tini.h
 
     Usage:
