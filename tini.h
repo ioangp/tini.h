@@ -1,6 +1,6 @@
 /*  TinyINI: Miniscule .ini file parser
     ; Copyright (C) 2026 Ioan Phillips
-    ; v. 0.2.0
+    ; v. 0.2.1
     ; https://github.com/ioangp/tini.h
 
     Usage:
@@ -18,7 +18,7 @@
         - Duplicate section names and keys are allowed
 
         - Compiles with C89 and up
-*/
+JMJ*/
 
 #ifndef TINI_H
 #define TINI_H
@@ -62,6 +62,7 @@ typedef struct IniResult {
     size_t capacity;
 } IniResult;
 
+/* Use ini_foreach on the IniSection or IniResult structures, not their `items` */
 #if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 199901L
 #define ini_foreach(Type, item, in_list) for (Type *item = (in_list)->items; item < (in_list)->items + (in_list)->count; ++item)
 #define ini_foreach_ansi(item, in_list) for (item = (in_list)->items; item < (in_list)->items + (in_list)->count; ++item)
@@ -74,7 +75,7 @@ IniResult  *ini_parse(const char *filepath, IniErrorInfo *err);
 void        ini_free(IniResult *ini);
 void        ini_print(IniResult *ini);
 IniSection *ini_get_section(IniResult *ini,     const char* section);   /* returns: First IniSection with that name or NULL */
-IniEntry   *ini_get_entry(IniSection *section,  const char* key);       /* returns: First IniEntry with that key or NULL */
+IniEntry   *ini_get_entry(IniSection  *section, const char* key);       /* returns: First IniEntry with that key or NULL */
 
 int         ini_get_int(IniSection    *section, const char* key, int    default_val);
 double      ini_get_double(IniSection *section, const char* key, double default_val);
@@ -94,6 +95,9 @@ int         ini_get_bool(IniSection   *section, const char* key, int    default_
 
 static void ini_section_release(IniSection *);
 static void ini_result_release(IniResult *);
+static char *ini_strdup(const char *s);
+static int ini_stricmp(const char *a, const char *b);
+static char *trim(char *s);
 
 #define _inilist_append(list, x)                                                   \
     do {                                                                           \
@@ -107,24 +111,6 @@ static void ini_result_release(IniResult *);
         }                                                                          \
         list.items[list.count++] = x;                                              \
     } while(0)
-
-char *trim(char *s)
-{
-    char *end;
-
-    while (isspace((unsigned char)*s))
-        s++;
-
-    if (*s == '\0')
-        return s;
-
-    end = s + strlen(s) - 1;
-    while (end > s && isspace((unsigned char)*end))
-        end--;
-
-    end[1] = '\0';
-    return s;
-}
 
 #define _inierr(errcode) {                                  \
     err->error = errcode;                                   \
@@ -155,7 +141,7 @@ IniResult *ini_parse(const char *filepath, IniErrorInfo *err) {
     if (!fp)
         _inierr(INI_ERR_OPEN_FILE)
 
-    current_section.name = strdup(INI_GLOBAL_SECTION);
+    current_section.name = ini_strdup(INI_GLOBAL_SECTION);
     if (!current_section.name)
         _inierr(INI_ERR_OUT_OF_MEMORY)
 
@@ -195,7 +181,7 @@ IniResult *ini_parse(const char *filepath, IniErrorInfo *err) {
             _inilist_append(result, current_section);
             memset(&current_section, 0, sizeof current_section);
 
-            current_section.name = strdup(name);
+            current_section.name = ini_strdup(name);
             if (!current_section.name)
                 _inierr(INI_ERR_OUT_OF_MEMORY)
 
@@ -228,8 +214,8 @@ IniResult *ini_parse(const char *filepath, IniErrorInfo *err) {
 
         value = trim(value);
 
-        entry.key = strdup(key);
-        entry.value = strdup(value);
+        entry.key = ini_strdup(key);
+        entry.value = ini_strdup(value);
 
         if(!entry.key || !entry.value)
             _inierr(INI_ERR_OUT_OF_MEMORY)
@@ -368,22 +354,22 @@ int ini_get_bool(IniSection *section, const char* key, int default_val)
     if(!e)
         return default_val;
 
-    if(strcasecmp(e->value, "1") == 0)
+    if(ini_stricmp(e->value, "1") == 0)
         return true;
 
-    if (strcasecmp(e->value, "true") == 0)
+    if (ini_stricmp(e->value, "true") == 0)
         return true;
     
-    if (strcasecmp(e->value, "on") == 0)
+    if (ini_stricmp(e->value, "on") == 0)
         return true;
 
-    if(strcasecmp(e->value, "0") == 0)
+    if(ini_stricmp(e->value, "0") == 0)
         return false;
 
-    if (strcasecmp(e->value, "false") == 0)
+    if (ini_stricmp(e->value, "false") == 0)
         return false;
     
-    if (strcasecmp(e->value, "off") == 0)
+    if (ini_stricmp(e->value, "off") == 0)
         return false;
     
     return default_val;
@@ -410,6 +396,60 @@ void ini_print(IniResult *ini)
 
         printf("\n");
     }
+}
+
+static char *trim(char *s)
+{
+    char *end;
+
+    while (isspace((unsigned char)*s))
+        s++;
+
+    if (*s == '\0')
+        return s;
+
+    end = s + strlen(s) - 1;
+    while (end > s && isspace((unsigned char)*end))
+        end--;
+
+    end[1] = '\0';
+    return s;
+}
+
+static char *ini_strdup(const char *s)
+{
+    size_t len;
+    char *copy;
+
+    if (!s)
+        return NULL;
+
+    len = strlen(s) + 1;
+    copy = malloc(len);
+
+    if (copy)
+        memcpy(copy, s, len);
+
+    return copy;
+}
+
+static int ini_stricmp(const char *a, const char *b)
+{
+    unsigned char ca, cb;
+
+    while (*a && *b) {
+        ca = (unsigned char)tolower((unsigned char)*a);
+        cb = (unsigned char)tolower((unsigned char)*b);
+
+        if (ca != cb)
+            return ca - cb;
+
+        a++;
+        b++;
+    }
+
+    return (unsigned char)tolower((unsigned char)*a) -
+           (unsigned char)tolower((unsigned char)*b);
 }
 
 #endif
