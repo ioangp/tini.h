@@ -63,12 +63,11 @@ typedef struct IniResult {
 } IniResult;
 
 /* Use ini_foreach on the IniSection or IniResult structures, not their `items` */
+#define ini_foreach_ansi(item, in_list) for (item = (in_list)->items; item < (in_list)->items + (in_list)->count; ++item)
 #if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 199901L
 #define ini_foreach(Type, item, in_list) for (Type *item = (in_list)->items; item < (in_list)->items + (in_list)->count; ++item)
-#define ini_foreach_ansi(item, in_list) for (item = (in_list)->items; item < (in_list)->items + (in_list)->count; ++item)
 #else
 #define ini_foreach(Type, item, in_list) Type *item; for (item = (in_list)->items; item < (in_list)->items + (in_list)->count; ++item)
-#define ini_foreach_ansi(item, in_list) for (item = (in_list)->items; item < (in_list)->items + (in_list)->count; ++item)
 #endif
 
 IniResult  *ini_parse(const char *filepath, IniErrorInfo *err);
@@ -198,7 +197,7 @@ IniResult *ini_parse(const char *filepath, IniErrorInfo *err) {
         key = trim(p);
         value = trim(eq + 1);
 
-        /*A comment is whitespace followed by ; or # */
+        /* A comment is whitespace followed by ; or # */
         p = value; /* reuse */
 
         while (*p) {
